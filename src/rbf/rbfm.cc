@@ -120,15 +120,11 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
 		case TypeInt:
 			memcpy(&valInt, (char*)data + recordSize, sizeof(int));
 			std::cout << valInt;
-			if (i != vecLen - 1)
-				std::cout <<",";
 			recordSize += sizeof(int);
 			break;
 		case TypeReal:
 			memcpy(&valFloat, (char*)data + recordSize, sizeof(float));
 			std::cout << valFloat;
-			if (i != vecLen - 1)
-				std::cout <<",";
 			recordSize += sizeof(float);
 			break;
 		case TypeVarChar:
@@ -139,10 +135,10 @@ RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor
 			recordSize += strLen;
 			std::cout << varChar;
 			free(varChar);
-			if (i != vecLen - 1)
-				std::cout <<",";
 			break;
 		}
+		if (i != vecLen - 1)
+			std::cout <<",";
 	}
 	std::cout << std::endl;
 	return 0;
