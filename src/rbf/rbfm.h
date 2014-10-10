@@ -3,10 +3,13 @@
 
 #include <string>
 #include <vector>
+#include <cstdlib>
+#include <iostream>
 
 #include "../rbf/pfm.h"
 
 using namespace std;
+#define SLOT_SIZE 2 * sizeof(int)
 
 
 // Record ID
@@ -130,6 +133,89 @@ protected:
 
 private:
   static RecordBasedFileManager *_rbf_manager;
+  PagedFileManager* pfm;
+
+  inline int getPage(FileHandle &fileHandle, void *page, bool& isNew, int recordSize)      //must be opened first
+  {
+	  //if it is the first page
+	  //if we need to append new page, since previous page cannot hold the record
+	  if (!isPageAvailable(page, recordSize) || !fileHandle.getNumberOfPages())
+	  {
+		  fileHandle.appendPage(page);
+		  isNew = true;
+	  }
+	  //get that page
+	  return fileHandle.readPage(fileHandle.getNumberOfPages() - 1, page);
+
+  }
+
+  inline void initializePage(void* page)   //page must be initialized before insertion
+  {
+	  int size = 0;
+	  memcpy((char*)page + (PAGE_SIZE - sizeof(int)), &size, sizeof(int));//initialize freespace pointer
+	  memcpy((char*)page + (PAGE_SIZE - 2 * sizeof(int)), &size, sizeof(int));//initialize num of slots
+	  return;
+  }
+
+  inline int getFreeSpace(void* page)
+  {
+	  int offset = getFreeSpaceOffset(page);
+	  int numOfSlots = getNumOfSlots(page);
+	  return PAGE_SIZE - offset - numOfSlots * SLOT_SIZE - 2 * sizeof(int);
+  }
+
+  inline bool isPageAvailable(void* page, int recordSize)
+  {
+	  int freeSpace = getFreeSpace(page);
+	  int diff = freeSpace - recordSize - SLOT_SIZE;//need space for record and slot
+	  bool isAvailable = diff >=0 ? true: false;
+	  return isAvailable;
+  }
+
+  inline int getFreeSpaceOffset(void* page)
+  {
+	  int pos = 0;
+	  memcpy(&pos, (char*)page + (PAGE_SIZE - sizeof(int)), sizeof(int));
+	  return pos;
+  }
+
+  inline int getNextSlotOffset(void* page)
+  {
+	  int numOfSlot = getNumOfSlots(page);
+	  return PAGE_SIZE - (numOfSlot + 1) * SLOT_SIZE - 2 * sizeof(int);
+  }
+
+  inline int getSlotOffset(int slotNum)//slot num starts from 0
+  {
+	  return PAGE_SIZE - (slotNum + 1) * SLOT_SIZE - 2 * sizeof(int);
+  }
+
+  inline int getNumOfSlots(void* page)
+  {
+	  int num = 0;
+	  memcpy(&num, (char*)page + PAGE_SIZE - 2 * sizeof(int), sizeof(int));
+	  return num;
+  }
+
+  inline void updateNumOfSlots(void* page, int num)
+  {
+	  memcpy((char*)page + PAGE_SIZE - 2 * sizeof(int), &num, sizeof(int));
+	  return;
+  }
+
+  inline void updateFreeSpaceOffset(void* page, int offset)
+  {
+	  memcpy((char*)page + PAGE_SIZE - sizeof(int), &offset, sizeof(int));
+	  return;
+  }
+
+  inline void getSlot(int& recordOffset, int& recordLen, int slotNum, void* page)
+  {
+	  int slotOffset = getSlotOffset(slotNum);
+	  memcpy(&recordOffset, (char*)page + slotOffset, sizeof(int));
+	  memcpy(&recordLen, (char*)page + slotOffset + sizeof(int), sizeof(int));
+	  return;
+  }
 };
 
 #endif
