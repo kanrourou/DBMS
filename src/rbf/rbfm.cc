@@ -43,10 +43,10 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 			slotOffset = 0,
 			strLen = 0,
 			freeSpaceOffset = 0;
-	int vecLen = recordDescriptor.size();
+	size_t vecLen = recordDescriptor.size();
 	bool isNew = false;//if the page has been initialized
 	//calculate recordSize
-	for (unsigned int i = 0; i < vecLen; i++)
+	for (size_t i = 0; i < vecLen; i++)
 	{
 		//calculate record size
 		switch(recordDescriptor[i].type)
@@ -106,14 +106,12 @@ RC RecordBasedFileManager::readRecord(FileHandle &fileHandle, const vector<Attri
 }
 
 RC RecordBasedFileManager::printRecord(const vector<Attribute> &recordDescriptor, const void *data) {
-	int vecLen = recordDescriptor.size(),
-			recordSize = 0,
-			strLen = 0;
+	int recordSize = 0, strLen = 0;
+	size_t vecLen = recordDescriptor.size();
 	int valInt = 0;
 	float valFloat = 0;
 	char* varChar;
-	int i;
-	for (i = 0; i < vecLen; i++)
+	for (size_t i = 0; i < vecLen; i++)
 	{
 		switch(recordDescriptor[i].type)
 		{
