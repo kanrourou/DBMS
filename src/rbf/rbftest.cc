@@ -681,6 +681,7 @@ int RBFTest_10(RecordBasedFileManager *rbfm, vector<RID> &rids, vector<int> &siz
         
         cout << "Returned Data:" << endl;
         rbfm->printRecord(recordDescriptor, returnedData);
+
         int size = 0;
         prepareLargeRecord(i, record, &size);
         if(memcmp(returnedData, record, sizes[i]) != 0)
@@ -731,10 +732,10 @@ int main()
     remove("test_4");
     
     RBFTest_1(pfm);
-    RBFTest_2(pfm);
+    RBFTest_2(pfm); 
     RBFTest_3(pfm);
     RBFTest_4(pfm);
-    RBFTest_5(pfm);
+    RBFTest_5(pfm); 
     RBFTest_6(pfm);
     RBFTest_7(pfm);
     RBFTest_8(rbfm);
