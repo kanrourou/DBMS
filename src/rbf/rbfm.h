@@ -135,20 +135,32 @@ private:
 	static RecordBasedFileManager *_rbf_manager;
 	PagedFileManager* pfm;
 
-	inline int getPage(FileHandle &fileHandle, void *page, bool& isNew, int recordSize)      //must be opened first
+	inline int getPage(FileHandle &fileHandle, void *page, bool& isNew, int recordSize, int& freePageNum)      //must be opened first
 	{
 		//if it is the first page
 		//if we need to append new page, since previous page cannot hold the record
-		void* lastPage = malloc(PAGE_SIZE);
-		fileHandle.readPage(fileHandle.getNumberOfPages() - 1, lastPage);
-		if (!isPageAvailable(lastPage, recordSize) || !fileHandle.getNumberOfPages())
+		int findAvailablePage = false;
+		void* candidatePage = malloc(PAGE_SIZE);
+		for (int i = 0; i < fileHandle.getNumberOfPages();i++)
+		{
+			fileHandle.readPage(i, candidatePage);
+			if (isPageAvailable(candidatePage, recordSize))
+			{
+				freePageNum = i;
+				findAvailablePage = true;
+				break;
+			}
+		}
+		free(candidatePage);
+		if (!findAvailablePage)
 		{
 			fileHandle.appendPage(page);
+			freePageNum = fileHandle.getNumberOfPages() - 1;
 			isNew = true;
 		}
+
 		//get that page
-		free(lastPage);
-		return fileHandle.readPage(fileHandle.getNumberOfPages() - 1, page);
+		return fileHandle.readPage(freePageNum, page);
 
 	}
 

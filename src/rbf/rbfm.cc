@@ -42,13 +42,13 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 	int recordSize = 0,
 			slotOffset = 0,
 			strLen = 0,
-			freeSpaceOffset = 0;
+			freeSpaceOffset = 0,
+			freePageNum = 0;
 	size_t vecLen = recordDescriptor.size();
 	bool isNew = false;//if the page has been initialized
 	//calculate recordSize
 	for (size_t i = 0; i < vecLen; i++)
 	{
-		//calculate record size
 		switch(recordDescriptor[i].type)
 		{
 		case TypeInt:
@@ -65,10 +65,11 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 	}
 	void* page = malloc(PAGE_SIZE);
 	//get available page
-	int ret = getPage(fileHandle, page, isNew, recordSize);
+	int ret = getPage(fileHandle, page, isNew, recordSize, freePageNum);
 	//if it is a new allocated page
 	if(isNew)
 		initializePage(page);//initialize new allocated page
+
 	//if page can hold this record
 	freeSpaceOffset = getFreeSpaceOffset(page);//get free space offset in the page
 	//insert record
@@ -84,9 +85,9 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 	numOfSlots++;
 	updateNumOfSlots(page, numOfSlots);
 	//dump page
-	fileHandle.writePage(fileHandle.getNumberOfPages() - 1, page);
+	fileHandle.writePage(freePageNum, page);
 	//set rid
-	rid.pageNum = fileHandle.getNumberOfPages() - 1;
+	rid.pageNum = freePageNum;
 	rid.slotNum = numOfSlots - 1;
 	free(page);
 	return ret;
