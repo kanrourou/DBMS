@@ -33,7 +33,7 @@ RC PagedFileManager::createFile(const char *fileName)
 	}
 	else
 	{
-		fopen(fileName,"wb");
+		pFile = fopen(fileName,"wb");
 		fclose(pFile);
 		return 0;
 	}
@@ -150,7 +150,7 @@ RC FileHandle::appendPage(const void *data)
 }
 
 
-unsigned FileHandle::getNumberOfPages()
+int FileHandle::getNumberOfPages()
 {
     return numOfPages;
 }

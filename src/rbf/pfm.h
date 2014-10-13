@@ -38,14 +38,14 @@ public:
     RC readPage(PageNum pageNum, void *data);                           // Get a specific page
     RC writePage(PageNum pageNum, const void *data);                    // Write a specific page
     RC appendPage(const void *data);                                    // Append a specific page
-    unsigned getNumberOfPages();                                        // Get the number of pages in the file
+    int getNumberOfPages();                                        // Get the number of pages in the file
     void setFile(FILE* const pFile);									// Set associated file
     FILE* getFile();													// Get associated file
     void setPage(int num);
 
 private:
     FILE* pFile_;														// Associated file
-    unsigned int numOfPages;											// number of pages
+    int numOfPages;											// number of pages
  };
 
  #endif
