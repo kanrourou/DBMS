@@ -1,5 +1,7 @@
 #include "pfm.h"
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 PagedFileManager* PagedFileManager::_pf_manager = 0;
 
@@ -60,8 +62,7 @@ RC PagedFileManager::openFile(const char *fileName, FileHandle &fileHandle)
 		fseek(pFile, 0, SEEK_END);
 		ret = !(ftell(pFile) % PAGE_SIZE)? 0: -1;
 		int num = ftell(pFile) / PAGE_SIZE;
-		fileHandle.setPage(num);
-
+		fileHandle.setPageNum(num);
 	}
 	else
 		ret = -1;
@@ -104,7 +105,7 @@ FILE* FileHandle::getFile()
 	return pFile_;
 }
 
-void FileHandle::setPage(int num)
+void FileHandle::setPageNum(int num)
 {
 	numOfPages = num;
 }

@@ -38,6 +38,79 @@ RC RecordBasedFileManager::closeFile(FileHandle &fileHandle) {
 	return pfm->closeFile(fileHandle);
 }
 
+int RecordBasedFileManager::lookForPageInDir(FileHandle &fileHandle, int recordSize)
+{
+	int numOfPages = fileHandle.getNumberOfPages();
+	int numOfDirs = (numOfPages / FREE_SPACE_DIR_SIZE) + 1;
+	void* dir = malloc(PAGE_SIZE);
+	for (int i = 0; i < numOfDirs; i++)
+	{
+		//read directory
+		fileHandle.readPage(i * FREE_SPACE_DIR_SIZE, dir);
+		int numOfPagesInDir = 0;
+		memcpy(&numOfPagesInDir, dir, sizeof(int));
+		for (int j = 1; j <= numOfPagesInDir; j++)
+		{
+			int freeSpace = 0;
+			memcpy(&freeSpace, (int*)dir + j, sizeof(int));
+			if (freeSpace >= recordSize + SLOT_SIZE)
+				return i * FREE_SPACE_DIR_SIZE + j;
+		}
+	}
+	free(dir);
+	return -1;
+}
+
+int RecordBasedFileManager::getPage(FileHandle &fileHandle, void *page, bool& isNew, int recordSize, int& freePageNum) 
+{
+		//create directory when necessary
+		if (!(fileHandle.getNumberOfPages() % FREE_SPACE_DIR_SIZE))
+		{
+			void* dir = malloc(PAGE_SIZE);
+			int dirSize = 0;
+			memcpy(dir, &dirSize, sizeof(int));
+			fileHandle.appendPage(dir);
+			free(dir);
+
+		}
+		//if it is the first page
+		//if we need to append new page, since previous page cannot hold the record
+		bool findAvailablePage = false;
+		int pageNum = lookForPageInDir(fileHandle, recordSize);
+		findAvailablePage = pageNum == -1? false: true;
+		//if there is no available page, append new page, updtae directory
+		if (!findAvailablePage)
+		{
+			//append new page
+			fileHandle.appendPage(page);
+			//get new page num
+			pageNum = fileHandle.getNumberOfPages() - 1;
+			void* dir = malloc(PAGE_SIZE);
+			//calculate directory num
+			int dirNum = pageNum / FREE_SPACE_DIR_SIZE;
+			//read directory
+			fileHandle.readPage(dirNum * FREE_SPACE_DIR_SIZE, dir);
+			//calculate page's offset in directory
+			int pageOffsetInDir = pageNum % FREE_SPACE_DIR_SIZE;
+			int freeSpace = PAGE_SIZE - 8;//last two bytes for freeSpaceOffset and numOfSlots
+			//set free space for that page in directory
+			memcpy((int*)dir + pageOffsetInDir, &freeSpace, sizeof(int));
+			//update num of pages in directory
+			int numOfPagesInDir = 0;
+			memcpy(&numOfPagesInDir, dir, sizeof(int));
+			numOfPagesInDir++;
+			memcpy(dir, &numOfPagesInDir, sizeof(int));
+			fileHandle.writePage(dirNum * FREE_SPACE_DIR_SIZE, dir);
+			free(dir);
+			isNew = true;
+		}
+
+		//get that page
+		freePageNum = pageNum;
+		return fileHandle.readPage(freePageNum, page);
+
+}
+
 RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Attribute> &recordDescriptor, const void *data, RID &rid) {
 	int recordSize = 0,
 			slotOffset = 0,
@@ -84,6 +157,18 @@ RC RecordBasedFileManager::insertRecord(FileHandle &fileHandle, const vector<Att
 	int numOfSlots = getNumOfSlots(page);
 	numOfSlots++;
 	updateNumOfSlots(page, numOfSlots);
+	//update directory
+	int dirNum = freePageNum / FREE_SPACE_DIR_SIZE;
+	int pageOffsetInDir = freePageNum % FREE_SPACE_DIR_SIZE;
+	void* dir = malloc(PAGE_SIZE);
+	fileHandle.readPage(dirNum * FREE_SPACE_DIR_SIZE, dir);
+	int freeSpace = 0;
+	memcpy(&freeSpace, (int*)dir + pageOffsetInDir, sizeof(int));
+	freeSpace -= (recordSize + SLOT_SIZE);
+	memcpy((int*)dir + pageOffsetInDir, &freeSpace, sizeof(int));
+	//dump directory
+	fileHandle.writePage(dirNum * FREE_SPACE_DIR_SIZE, dir);
+	free(dir);
 	//dump page
 	fileHandle.writePage(freePageNum, page);
 	//set rid

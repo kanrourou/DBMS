@@ -41,7 +41,7 @@ public:
     int getNumberOfPages();                                        // Get the number of pages in the file
     void setFile(FILE* const pFile);									// Set associated file
     FILE* getFile();													// Get associated file
-    void setPage(int num);
+    void setPageNum(int num);											// Set page number
 
 private:
     FILE* pFile_;														// Associated file

@@ -11,6 +11,7 @@
 
 using namespace std;
 #define SLOT_SIZE 2 * sizeof(int)
+#define FREE_SPACE_DIR_SIZE 1024
 
 
 // Record ID
@@ -136,35 +137,12 @@ private:
 	static RecordBasedFileManager *_rbf_manager;
 	PagedFileManager* pfm;
 
-	inline int getPage(FileHandle &fileHandle, void *page, bool& isNew, int recordSize, int& freePageNum)      //must be opened first
-	{
-		//if it is the first page
-		//if we need to append new page, since previous page cannot hold the record
-		int findAvailablePage = false;
-		void* candidatePage = malloc(PAGE_SIZE);
-		for (int i = 0; i < fileHandle.getNumberOfPages();i++)
-		{
-			fileHandle.readPage(i, candidatePage);
-			if (isPageAvailable(candidatePage, recordSize))
-			{
-				freePageNum = i;
-				findAvailablePage = true;
-				break;
-			}
-		}
-		free(candidatePage);
-		if (!findAvailablePage)
-		{
-			fileHandle.appendPage(page);
-			freePageNum = fileHandle.getNumberOfPages() - 1;
-			isNew = true;
-		}
+	int getPage(FileHandle &fileHandle, void *page, bool& isNew, int recordSize, int& freePageNum);      //must be opened first
 
-		//get that page
-		return fileHandle.readPage(freePageNum, page);
+	//dir start at 0
+	int lookForPageInDir(FileHandle &fileHandle, int recordSize);		//looking for available page in free space directory, if not found return -1
 
-	}
-
+	//page must be initialized before insertion
 	inline void initializePage(void* page)   //page must be initialized before insertion
 	{
 		int size = 0;
@@ -172,6 +150,7 @@ private:
 		memcpy((char*)page + (PAGE_SIZE - 2 * sizeof(int)), &size, sizeof(int));//initialize num of slots
 		return;
 	}
+
 
 	inline int getFreeSpace(void* page)
 	{
