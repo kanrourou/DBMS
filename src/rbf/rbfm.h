@@ -10,8 +10,9 @@
 #include "../rbf/pfm.h"
 
 using namespace std;
-#define SLOT_SIZE 2 * sizeof(int)
+#define SLOT_SIZE 3 * sizeof(int)
 #define FREE_SPACE_DIR_SIZE 1024
+#define FIELD_INFO_SIZE 2 * sizeof(int)
 
 
 // Record ID
@@ -137,11 +138,23 @@ private:
 	static RecordBasedFileManager *_rbf_manager;
 	PagedFileManager* pfm;
 
+	//for record reading
+	RC freeMemory(char* page_dummy); // free memory allocated by malloc()
+
+	RC getRealRecordRid(FileHandle &fileHandle, const RID &rid, RID &realRid, char* data); // get the RID which points to the real record
+	
+	RC getRealRecord(const RID &rid, char* page_dummy, char* data); // get the content of real record
+	
+	RC deleteRecordHelper(FileHandle &fileHandle, const RID &rid, RID &realRid);
+
+
 	int getPage(FileHandle &fileHandle, void *page, bool& isNew, int recordSize, int& freePageNum);      //must be opened first
 
 	//dir start at 0
 	int lookForPageInDir(FileHandle &fileHandle, int recordSize);		//looking for available page in free space directory, if not found return -1
 
+	void prepareRecord(const vector<Attribute> &recordDescriptor, void* appendedData, const void* data);//append record with field info
+	
 	//page must be initialized before insertion
 	inline void initializePage(void* page)   //page must be initialized before insertion
 	{
@@ -159,6 +172,7 @@ private:
 		return PAGE_SIZE - offset - numOfSlots * SLOT_SIZE - 2 * sizeof(int);
 	}
 
+	/*
 	inline bool isPageAvailable(void* page, int recordSize)
 	{
 		int freeSpace = getFreeSpace(page);
@@ -166,6 +180,7 @@ private:
 		bool isAvailable = diff >=0 ? true: false;
 		return isAvailable;
 	}
+	*/
 
 	inline int getFreeSpaceOffset(void* page)
 	{
@@ -174,7 +189,7 @@ private:
 		return pos;
 	}
 
-	inline int getNextSlotOffset(void* page)
+	inline int getAvailableSlotOffset(void* page)
 	{
 		int numOfSlot = getNumOfSlots(page);
 		return PAGE_SIZE - (numOfSlot + 1) * SLOT_SIZE - 2 * sizeof(int);
@@ -208,8 +223,8 @@ private:
 	inline void getSlot(int& recordOffset, int& recordLen, int slotNum, void* page)
 	{
 		int slotOffset = getSlotOffset(slotNum);
-		memcpy(&recordOffset, (char*)page + slotOffset, sizeof(int));
-		memcpy(&recordLen, (char*)page + slotOffset + sizeof(int), sizeof(int));
+		memcpy(&recordOffset, (char*)page + slotOffset + sizeof(int), sizeof(int));
+		memcpy(&recordLen, (char*)page + slotOffset + 2 * sizeof(int), sizeof(int));
 		return;
 	}
 };
