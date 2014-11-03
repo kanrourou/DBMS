@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
+#include <cerrno>
 
 PagedFileManager* PagedFileManager::_pf_manager = 0;
 
@@ -31,6 +33,7 @@ RC PagedFileManager::createFile(const char *fileName)
 	pFile = fopen(fileName,"rb");
 	if (pFile)
 	{
+		fclose(pFile);
 		return -1;
 	}
 	else
@@ -61,26 +64,26 @@ RC PagedFileManager::openFile(const char *fileName, FileHandle &fileHandle)
 		fileHandle.setFile(pFile);
 		fseek(pFile, 0, SEEK_END);
 		ret = !(ftell(pFile) % PAGE_SIZE)? 0: -1;
+		if (ret == -1)
+			std::cout << "openFile: file size error!" << std::endl;
 		int num = ftell(pFile) / PAGE_SIZE;
 		fileHandle.setPageNum(num);
 	}
-	else
+	else {
+		std::cout << "openFile: cannot find file " << fileName <<" !" << std::endl;
 		ret = -1;
+	}
 	return ret;
 }
 
 //close file and delete associate file pointer in fileHandle, return 0 if succeed
 RC PagedFileManager::closeFile(FileHandle &fileHandle)
 {
-	if (!fclose(fileHandle.getFile()))
-	{
-		fileHandle.setFile(NULL);
-		return 0;
-	}
-	else
-	{
-		return -1;
-	}
+	RC rc;
+	fflush(fileHandle.getFile());
+	rc = fclose(fileHandle.getFile());
+	fileHandle.setFile(NULL);
+	return rc;
 }
 
 
@@ -95,7 +98,7 @@ FileHandle::~FileHandle()
 {
 }
 
-void FileHandle::setFile(FILE* const pFile)
+void FileHandle::setFile(FILE* pFile)
 {
 	pFile_ = pFile;
 }
@@ -119,6 +122,7 @@ RC FileHandle::readPage(PageNum pageNum, void *data)
     	//check error
     	ret = !fseek(pFile_, PAGE_SIZE * pageNum, SEEK_SET)? 0: -1;
     	ret = fread(data, 1, PAGE_SIZE, pFile_) == PAGE_SIZE || feof(pFile_)? 0: -1;
+    	fflush(pFile_);
     }
     else
     	ret = -1;
@@ -134,6 +138,7 @@ RC FileHandle::writePage(PageNum pageNum, const void *data)
     	//check error
     	ret = !fseek(pFile_, PAGE_SIZE * pageNum, SEEK_SET)? 0: -1;
     	ret = fwrite(data, 1, PAGE_SIZE, pFile_) == PAGE_SIZE? 0: -1;
+    	fflush(pFile_);
     }
     else
     	ret = -1;
