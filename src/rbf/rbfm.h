@@ -15,6 +15,7 @@ using namespace std;
 #define FREE_SPACE_DIR_SIZE 1024
 #define FIELD_INFO_SIZE 2 * sizeof(int)
 #define RID_RECORD_SIZE 3 * sizeof(int)
+#define RID_SIZE 2 * sizeof(unsigned)
 
 
 // Record ID

@@ -44,19 +44,12 @@ void TEST_RM_16(const string &tableName)
 int main()
 {
     // NOTE: your Tables table must be called "Tables"
-    string catalog_table_name1 = "catalog";
-	string catalog_table_name2 = "column";
-
+    string catalog_table_name = "Tables";
 
     cout << endl << "Test Catalog Information .." << endl;
 
     // Test Catalog Information
-    TEST_RM_16(catalog_table_name1);
-
-	cout << endl << "Test Column Information .." << endl;
-
-	TEST_RM_16(catalog_table_name2);
-
+    TEST_RM_16(catalog_table_name);
 
     return 0;
 }

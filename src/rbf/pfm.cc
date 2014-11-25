@@ -80,6 +80,8 @@ RC PagedFileManager::openFile(const char *fileName, FileHandle &fileHandle)
 RC PagedFileManager::closeFile(FileHandle &fileHandle)
 {
 	RC rc;
+	if (fileHandle.getFile() == NULL)
+		return -1;
 	fflush(fileHandle.getFile());
 	rc = fclose(fileHandle.getFile());
 	fileHandle.setFile(NULL);
