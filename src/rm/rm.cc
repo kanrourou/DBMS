@@ -1,5 +1,6 @@
 
 #include "rm.h"
+#include <cassert>
 
 RelationManager* RelationManager::_rm = 0;
 
@@ -13,8 +14,9 @@ RelationManager* RelationManager::instance()
 
 RelationManager::RelationManager()
 {
-	//initialize rbfm
+	//initialize rbfm, ix
 	_rbfm = RecordBasedFileManager::instance();
+	_ix = IndexManager::instance();
 
 	//assign table name
 	catalogTableName = "catalog";
@@ -75,9 +77,7 @@ RelationManager::RelationManager()
 	attr.length = 4;
 	columnDescriptor.push_back(attr);
 
-
-
-
+	//update cache
 	nameToID.insert(pair<string, int>(catalogTableName, catalogTableID));
 	nameToID.insert(pair<string, int>(columnTableName, columnTableID));
 	nameToDescriptor.insert(pair<string, vector<Attribute> >
@@ -198,15 +198,15 @@ RC RelationManager::createSystemTables()
 		//initialize tableID
 		tableID = 0;
 		RID rid;
-		RBFM_ScanIterator iter;
+		RBFM_ScanIterator iter1, iter2;
 		FileHandle fileHandle;
 		vector<string> attributeNames;
 		attributeNames.push_back("tableID");
 		rc = _rbfm->openFile(catalogTableName, fileHandle);
 		rc = _rbfm->scan(fileHandle, catalogDescriptor,
-				"", NO_OP, NULL, attributeNames, iter);
+				"", NO_OP, NULL, attributeNames, iter1);
 		void* page = malloc(sizeof(int));
-		while(iter.getNextRecord(rid, page) != RBFM_EOF)
+		while(iter1.getNextRecord(rid, page) != RBFM_EOF)
 		{
 			int id = 0;
 			memcpy(&id, page, sizeof(int));
@@ -215,7 +215,38 @@ RC RelationManager::createSystemTables()
 		}
 		free(page);
 		page = 0;
-		rc = iter.close();
+		rc = iter1.close();
+		//read all index name into cache
+		attributeNames.pop_back();
+		attributeNames.push_back("tableName");
+		rc = _rbfm->scan(fileHandle, catalogDescriptor,
+				"", NO_OP, NULL, attributeNames, iter2);
+		void* data = malloc(PAGE_SIZE);
+		assert(data != NULL);
+		while(iter2.getNextRecord(rid, data) != RBFM_EOF)
+		{
+			unsigned strLen = 0;
+			memcpy(&strLen, data, sizeof(unsigned));
+			void* str = malloc(strLen + 1);
+			assert(str != NULL);
+			memcpy(str, (char*)data + sizeof(unsigned), strLen);
+			char tail = '\0';
+			memcpy((char*)str + strLen, &tail, sizeof(char));
+			//if table name contains "_index_"
+			string substr = "_index_";
+			char* ptr = strstr((char*)str, substr.c_str());
+			//if it contains index, insert it into index cache
+			if (ptr != NULL)
+			{
+				string indexName((char*)str);
+				indexes.insert(indexName);
+
+			}
+			free(str);
+			str = 0;
+		}
+		free(data);
+		data = 0;
 		rc = _rbfm->closeFile(fileHandle);
 		tableID++;
 	}
@@ -343,6 +374,8 @@ RC RelationManager::deleteTable(const string &tableName)
 			nameToDescriptor.erase(tableName);
 		FileHandle fileHandle;
 		vector<string> attributeNames;
+        vector<Attribute> attrs;
+        rc = getAttributes(tableName, attrs);
 		attributeNames.push_back(catalogDescriptor[0].name);
 		RBFM_ScanIterator iterCat;
 		//inilize value filter
@@ -395,6 +428,19 @@ RC RelationManager::deleteTable(const string &tableName)
 		free(data);
 		data = 0;
 		iterCol.close();
+
+		//delelte indexes if there is any
+		
+		for (int i = 0; i < (int)attrs.size(); i++) {
+			string indexName = tableName + "_index_" + attrs[i].name;
+			//delete cache
+			if (indexes.find(indexName) != indexes.end())
+			{
+				indexes.erase(indexName);
+				destroyIndex(tableName, attrs[i].name);
+			}
+
+		}
 		rc = _rbfm->closeFile(fileHandle);
 
 	}
@@ -565,6 +611,79 @@ RC RelationManager::insertTuple(const string &tableName, const void *data, RID &
 		return -1;
 	}
 	rc = _rbfm->closeFile(fileHandle);
+	//insert into index
+	vector<Attribute> attrs;
+	rc = getAttributes(tableName, attrs);
+	assert(rc == 0);
+	unsigned offset = 0;
+	for (int i = 0; i < (int)attrs.size(); i++)
+	{
+		string indexName = tableName + "_index_" + attrs[i].name;
+		switch(attrs[i].type)
+		{
+		case TypeInt:
+		{
+			void* keyInt = malloc(sizeof(int));
+			assert(keyInt != NULL);
+			memcpy(keyInt, (char*)data + offset, sizeof(int));
+			offset += sizeof(int);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle1;
+				rc = _ix->openFile(indexName, ixFileHandle1);
+				assert(rc == 0);
+				rc = _ix->insertEntry(ixFileHandle1, attrs[i], keyInt, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle1);
+				assert(rc == 0);
+			}
+			free(keyInt);
+			keyInt = 0;
+			break;
+		}
+		case TypeReal:
+		{
+			void* keyReal = malloc(sizeof(float));
+			assert(keyReal != NULL);
+			memcpy(keyReal, (char*)data + offset, sizeof(float));
+			offset += sizeof(float);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle2;
+				rc = _ix->openFile(indexName, ixFileHandle2);
+				assert(rc == 0);
+				rc = _ix->insertEntry(ixFileHandle2, attrs[i], keyReal, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle2);
+				assert(rc == 0);
+			}
+			free(keyReal);
+			keyReal = 0;
+			break;
+		}
+		case TypeVarChar:
+		{
+			unsigned strLen = 0;
+			memcpy(&strLen, data, sizeof(unsigned));
+			void* keyVarChar = malloc(strLen);
+			assert(keyVarChar != NULL);
+			memcpy(keyVarChar, (char*)data + strLen, strLen);
+			offset += (sizeof(unsigned) + strLen);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle3;
+				rc = _ix->openFile(indexName, ixFileHandle3);
+				assert(rc == 0);
+				rc = _ix->insertEntry(ixFileHandle3, attrs[i], keyVarChar, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle3);
+				assert(rc == 0);
+			}
+			free(keyVarChar);
+			keyVarChar = 0;
+		}
+		}
+	}
 	return rc;
 }
 
@@ -588,6 +707,21 @@ RC RelationManager::deleteTuples(const string &tableName)
 		return -1;
 	}
 	rc = _rbfm->closeFile(fileHandle);
+	//clear index
+	vector<Attribute> attrs;
+	rc = getAttributes(tableName, attrs);
+	assert(rc == 0);
+	for (int i = 0; i < (int)attrs.size(); i++)
+	{
+		string indexName = tableName + "_index_" + attrs[i].name;
+		if (indexes.find(indexName) != indexes.end()) {
+			rc = _ix->destroyFile(indexName);
+			assert(rc == 0);
+			unsigned numOfPages = 4;
+			rc = _ix->createFile(indexName, numOfPages);
+			assert(rc == 0);
+		}
+	}
 	return rc;
 }
 
@@ -608,12 +742,93 @@ RC RelationManager::deleteTuple(const string &tableName, const RID &rid)
 		cout << "deleteTuple: error in fileOpen";
 		return rc;
 	}
+	//delete indexes
+	vector<Attribute> attrs;
+	rc = getAttributes(tableName, attrs);
+	assert(rc == 0);
+	void* page = malloc(PAGE_SIZE);
+	assert(page != NULL);
+	rc = _rbfm->readRecord(fileHandle, attrs, rid, page);
+	unsigned offset = 0;
+	assert(rc == 0);
 	rc = _rbfm->deleteRecord(fileHandle, recordDescriptor, rid);
 	if (rc) {
 		_rbfm->closeFile(fileHandle);
 		cout << "deleteTuple: error in recordDelete";
 		return rc;
 	}
+	for (int i = 0; i < (int)attrs.size(); i++)
+	{
+		string indexName = tableName + "_index_" + attrs[i].name;
+
+		switch(attrs[i].type)
+		{
+		case TypeInt:
+		{
+			void* keyInt = malloc(sizeof(int));
+			assert(keyInt != NULL);
+			memcpy(keyInt, (char*)page + offset, sizeof(int));
+			offset += sizeof(int);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle1;
+				rc = _ix->openFile(indexName, ixFileHandle1);
+				assert(rc == 0);
+				rc = _ix->deleteEntry(ixFileHandle1, attrs[i], keyInt, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle1);
+				assert(rc == 0);
+			}
+
+			free(keyInt);
+			keyInt = 0;
+			break;
+		}
+		case TypeReal:
+		{
+			void* keyReal = malloc(sizeof(float));
+			assert(keyReal != NULL);
+			memcpy(keyReal, (char*)page + offset, sizeof(float));
+			offset += sizeof(float);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle2;
+				rc = _ix->openFile(indexName, ixFileHandle2);
+				assert(rc == 0);
+				rc = _ix->deleteEntry(ixFileHandle2, attrs[i], keyReal, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle2);
+				assert(rc == 0);
+			}
+			free(keyReal);
+			keyReal = 0;
+			break;
+		}
+		case TypeVarChar:
+		{
+			unsigned strLen = 0;
+			memcpy(&strLen, page, sizeof(unsigned));
+			void* keyVarChar = malloc(strLen);
+			assert(keyVarChar != NULL);
+			memcpy(keyVarChar, (char*)page + strLen, strLen);
+			offset += (sizeof(unsigned) + strLen);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle3;
+				rc = _ix->openFile(indexName, ixFileHandle3);
+				assert(rc == 0);
+				rc = _ix->deleteEntry(ixFileHandle3, attrs[i], keyVarChar, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle3);
+				assert(rc == 0);
+				free(keyVarChar);
+				keyVarChar = 0;
+			}
+		}
+		}
+	}
+	free(page);
+	page = 0;
 	rc = _rbfm->closeFile(fileHandle);
 	if (rc) {
 		cout << "deleteTuple: error in fileClose";
@@ -637,12 +852,162 @@ RC RelationManager::updateTuple(const string &tableName, const void *data, const
 		_rbfm->closeFile(fileHandle);
 		return rc;
 	}
+	//delete indexes
+	vector<Attribute> attrs;
+	rc = getAttributes(tableName, attrs);
+	assert(rc == 0);
+	void* page = malloc(PAGE_SIZE);
+	assert(page != NULL);
+	rc = _rbfm->readRecord(fileHandle, attrs, rid, page);
+	unsigned offset = 0;
+	assert(rc == 0);
+	for (int i = 0; i < (int)attrs.size(); i++)
+	{
+		string indexName = tableName + "_index_" + attrs[i].name;
+
+		switch(attrs[i].type)
+		{
+		case TypeInt:
+		{
+			void* keyInt = malloc(sizeof(int));
+			assert(keyInt != NULL);
+			memcpy(keyInt, (char*)page + offset, sizeof(int));
+			offset += sizeof(int);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle1;
+				rc = _ix->openFile(indexName, ixFileHandle1);
+				assert(rc == 0);
+				rc = _ix->deleteEntry(ixFileHandle1, attrs[i], keyInt, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle1);
+				assert(rc == 0);
+			}
+			free(keyInt);
+			keyInt = 0;
+			break;
+		}
+		case TypeReal:
+		{
+			void* keyReal = malloc(sizeof(float));
+			assert(keyReal != NULL);
+			memcpy(keyReal, (char*)page + offset, sizeof(float));
+			offset += sizeof(float);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle2;
+				rc = _ix->openFile(indexName, ixFileHandle2);
+				assert(rc == 0);
+				rc = _ix->deleteEntry(ixFileHandle2, attrs[i], keyReal, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle2);
+				assert(rc == 0);
+			}
+			free(keyReal);
+			keyReal = 0;
+			break;
+		}
+		case TypeVarChar:
+		{
+			unsigned strLen = 0;
+			memcpy(&strLen, page, sizeof(unsigned));
+			void* keyVarChar = malloc(strLen);
+			assert(keyVarChar != NULL);
+			memcpy(keyVarChar, (char*)page + strLen, strLen);
+			offset += (sizeof(unsigned) + strLen);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle3;
+				rc = _ix->openFile(indexName, ixFileHandle3);
+				assert(rc == 0);
+				rc = _ix->deleteEntry(ixFileHandle3, attrs[i], keyVarChar, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle3);
+				assert(rc == 0);
+			}
+			free(keyVarChar);
+			keyVarChar = 0;
+		}
+		}
+	}
+	free(page);
+	page = 0;
 	rc = _rbfm->updateRecord(fileHandle, recordDescriptor, data, rid);
 	if (rc) {
 		_rbfm->closeFile(fileHandle);
 		return rc;
 	}
 	rc= _rbfm->closeFile(fileHandle);
+	//insert into index
+	offset = 0;
+	for (int i = 0; i < (int)attrs.size(); i++)
+	{
+		string indexName = tableName + "_index_" + attrs[i].name;
+		switch(attrs[i].type)
+		{
+		case TypeInt:
+		{
+			void* keyInt = malloc(sizeof(int));
+			assert(keyInt != NULL);
+			memcpy(keyInt, (char*)data + offset, sizeof(int));
+			offset += sizeof(int);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle1;
+				rc = _ix->openFile(indexName, ixFileHandle1);
+				assert(rc == 0);
+				rc = _ix->insertEntry(ixFileHandle1, attrs[i], keyInt, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle1);
+				assert(rc == 0);
+			}
+			free(keyInt);
+			keyInt = 0;
+			break;
+		}
+		case TypeReal:
+		{
+			void* keyReal = malloc(sizeof(float));
+			assert(keyReal != NULL);
+			memcpy(keyReal, (char*)data + offset, sizeof(float));
+			offset += sizeof(float);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle2;
+				rc = _ix->openFile(indexName, ixFileHandle2);
+				assert(rc == 0);
+				rc = _ix->insertEntry(ixFileHandle2, attrs[i], keyReal, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle2);
+				assert(rc == 0);
+			}
+			free(keyReal);
+			keyReal = 0;
+			break;
+		}
+		case TypeVarChar:
+		{
+			unsigned strLen = 0;
+			memcpy(&strLen, data, sizeof(unsigned));
+			void* keyVarChar = malloc(strLen);
+			assert(keyVarChar != NULL);
+			memcpy(keyVarChar, (char*)data + strLen, strLen);
+			offset += (sizeof(unsigned) + strLen);
+			if (indexes.find(indexName) != indexes.end())
+			{
+				IXFileHandle ixFileHandle3;
+				rc = _ix->openFile(indexName, ixFileHandle3);
+				assert(rc == 0);
+				rc = _ix->insertEntry(ixFileHandle3, attrs[i], keyVarChar, rid);
+				assert(rc == 0);
+				rc = _ix->closeFile(ixFileHandle3);
+				assert(rc == 0);
+			}
+			free(keyVarChar);
+			keyVarChar = 0;
+		}
+		}
+	}
 	return rc;
 }
 
@@ -719,7 +1084,140 @@ RC RelationManager::scan(const string &tableName,
 	getAttributes(tableName, record_descriptor);
 	_rbfm->scan(file_handle, record_descriptor, conditionAttribute, compOp, value, attributeNames, rm_ScanIterator.rbfm_scan_iterator);
 	return 0;
+}
 
+/*
+ *
+ */
+
+RC RelationManager::createIndex(const string &tableName, const string &attributeName)
+{
+	RC rc;
+	unsigned numOfPages = 4;
+	string indexName = tableName + "_index_" + attributeName;
+	if (indexes.find(indexName) != indexes.end()) {
+		cout << "createIndex: duplicate indexes!" << endl;
+		return -1;
+	}
+	vector<Attribute> attrs;
+	vector<Attribute> indexAttrs;
+	rc = getAttributes(tableName, attrs);
+	assert(rc == 0);
+	for (int i = 0; i < (int)attrs.size(); i++) {
+		if (attrs[i].name.compare(attributeName) == 0) {
+			indexAttrs.push_back(attrs[i]);
+			break;
+		}
+	}
+	//update index buffer
+	indexes.insert(indexName);
+	//create catalog info
+	rc = createTable(indexName, indexAttrs);
+	assert(rc == 0);
+	//create index file
+	rc = _ix->createFile(indexName, numOfPages);
+	assert(rc == 0);
+	//traversal the data file and insert into index
+	RM_ScanIterator iter;
+	FileHandle fileHandle;
+	vector<string> indexAttrNames;
+	indexAttrNames.push_back(indexAttrs[0].name);
+	assert(rc == 0);
+	rc = scan(tableName, "", NO_OP, NULL, indexAttrNames, iter);
+	assert(rc == 0);
+	//open index file
+	IXFileHandle ixFileHandle;
+	rc = _ix->openFile(indexName, ixFileHandle);
+	assert(rc == 0);
+	//rid, data
+	RID rid;
+	void* data = malloc(indexAttrs[0].length);
+	assert(data != NULL);
+	while (iter.getNextTuple(rid, data) != RM_EOF) {
+		rc = _ix->insertEntry(ixFileHandle, indexAttrs[0], data, rid);
+		assert(rc == 0);
+	}
+	iter.close();
+	attrs.clear();
+	indexAttrs.clear();
+	indexAttrNames.clear();
+	return rc;
+}
+
+RC RelationManager::destroyIndex(const string &tableName, const string &attributeName)
+{
+	RC rc;
+	string indexName = tableName + "_index_" + attributeName;
+	//delete catalog
+	rc = deleteTable(indexName);
+	assert(rc == 0);
+	//delete index files
+	rc = _ix->destroyFile(indexName);
+	assert(rc == 0);
+	//delete index in cache
+	if (indexes.find(indexName) != indexes.end())
+		indexes.erase(indexName);
+	return rc;
+
+}
+
+// indexScan returns an iterator to allow the caller to go through qualified entries in index
+RC RelationManager::indexScan(const string &tableName,
+		const string &attributeName,
+		const void *lowKey,
+		const void *highKey,
+		bool lowKeyInclusive,
+		bool highKeyInclusive,
+		RM_IndexScanIterator &rm_IndexScanIterator)
+{
+    // index file
+    char* charAry = (char *) malloc(100);
+    assert(charAry != NULL);
+    unsigned offset = 0;
+    memcpy(charAry, tableName.c_str(), tableName.size());
+    offset += tableName.size();
+    char underScore = '_';
+    memcpy(charAry + offset, &underScore, sizeof(char));
+    offset++;
+    string indexFlag = "index";
+    memcpy(charAry + offset, indexFlag.c_str(), indexFlag.size());
+    offset += indexFlag.size();
+    memcpy(charAry + offset, &underScore, sizeof(char));
+    offset++;
+    // short attribute name
+    unsigned loc = attributeName.find(".", 0);
+    string shortAttrName;
+    if(loc!=std::string::npos) {
+        shortAttrName = attributeName.substr(loc+1, attributeName.size() - loc);
+    } else {
+        shortAttrName = attributeName;
+    }
+    memcpy(charAry + offset, shortAttrName.c_str(), shortAttrName.size());
+    offset += shortAttrName.size();
+    char tail = '\0';
+    memcpy(charAry + offset, &tail, sizeof(char));
+    offset++;
+    string indexTableName = string(charAry);
+    free(charAry);
+    // ix_file_handle
+	IXFileHandle ix_file_handle;
+	_ix->openFile(indexTableName, ix_file_handle);
+    // attribute
+	vector<Attribute> record_descriptor;
+	getAttributes(tableName, record_descriptor);
+	Attribute attribute;
+	for(int i=0;i<record_descriptor.size();i++) {
+		attribute = record_descriptor[i];
+		if(attribute.name.compare(shortAttrName) == 0) {
+			break;
+		}
+	}
+	if(attribute.name.compare(shortAttrName) != 0) {
+		cout << "RelationManager::indexScan -> error" << endl;
+        return -1;
+	}
+	_ix->scan(ix_file_handle, attribute, lowKey, highKey, lowKeyInclusive, highKeyInclusive, rm_IndexScanIterator.ix_scan_iterator);
+	return 0;
 }
 
 
@@ -751,4 +1249,18 @@ RC RM_ScanIterator::getNextTuple(RID &rid, void *data) {
 
 RC RM_ScanIterator::close() {
 	return rbfm_scan_iterator.close();
+}
+
+RM_IndexScanIterator::RM_IndexScanIterator() {}
+
+RM_IndexScanIterator::~RM_IndexScanIterator() {}
+
+RC RM_IndexScanIterator::getNextEntry(RID &rid, void *key)
+{
+	return ix_scan_iterator.getNextEntry(rid, key);
+}
+
+RC RM_IndexScanIterator::close()
+{
+	return ix_scan_iterator.close();
 }

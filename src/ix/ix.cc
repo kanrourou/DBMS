@@ -1973,12 +1973,25 @@ unsigned IndexManager::hashReal(float key) {
 
 unsigned IndexManager::hashVarChar(char* key) {
 	// https://www.byvoid.com/blog/string-hash-compare
-	unsigned seed = 131; // 31 131 1313 13131 etc..
-	unsigned hash = 0;
-	while(*key != '\0') {
-		hash = hash * seed + (*key++);
-	}
-	return (hash & 0x7fffffff);
+	// unsigned seed = 131; // 31 131 1313 13131 etc..
+	// unsigned hash = 0;
+	// while(*key != '\0') {
+	//	hash = hash * seed + (*key++);
+	// }
+	// return (hash & 0x7fffffff);
+    //
+    
+    // http://stackoverflow.com/questions/8317508/hash-function-for-a-string
+    unsigned A = 54059; /* a prime */
+    unsigned B = 76963; /* another prime */
+    unsigned C = 86969; /* yet another prime */
+
+    unsigned h = 31 /* also prime */;
+    while (*key != '\0') {
+        h = (h * A) ^ (key[0] * B);
+        key++;
+    }
+    return h % C; // or return h % C;
 
 }
 
@@ -2462,13 +2475,13 @@ bool IX_ScanIterator::isKeyValid(void* key) {
 		break;
 	}
 	case TypeVarChar: {
-		unsigned size = sizeof(key);
+		// unsigned size = sizeof(key);
 		unsigned length = 0;
-		memcpy(&length, (char *) key + size - sizeof(unsigned), sizeof(unsigned));
+		memcpy(&length, key, sizeof(unsigned));
 		// get the result of comparison
 		int lowKeyCompare = 0;
 		if(lowKey != NULL) {
-			memcmp((char *) lowKey + sizeof(unsigned), key, length);
+			lowKeyCompare = memcmp((char *) lowKey + sizeof(unsigned), (char *) key + sizeof(unsigned), length);
 		} else {
 			leftRes = true;
 		}
@@ -2478,7 +2491,7 @@ bool IX_ScanIterator::isKeyValid(void* key) {
 		// get the result of comparison
 		int highKeyCompare = 0;
 		if(highKey != NULL) {
-			memcmp((char *) highKey + sizeof(unsigned), key, length);
+			highKeyCompare = memcmp((char *) highKey + sizeof(unsigned), (char *) key + sizeof(unsigned), length);
 		} else {
 			rightRes = true;
 		}
@@ -2569,6 +2582,11 @@ RC IX_ScanIterator::close() {
 //        delete preRid;
 //        preRid = NULL;
 //    }
+	ridPointer = 0;
+	(*preRid).pageNum = 0xffffffff;
+    (*preRid).slotNum = 0xffffffff;
+	isStart = true;
+
     return 0;
 }
 

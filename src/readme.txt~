@@ -7,22 +7,11 @@
 
 - Also, implement Query Engine (QE)
 
-   Go to folder "cli" and type in:
+   Go to folder "qe" and type in:
 
     make clean
     make
-    ./clitest_01
-    ./clitest_02
-    ./clitest_03
-    ./clitest_04
-    ./clitest_05
-    ./clitest_06
-    ./clitest_07
-    ./clitest_08
-    ./clitest_09
-    ./clitest_10
-    ./clitest_11
-    ./clitest_12
+    ./clitest
 
    The program should work. But it does nothing until you implement the extension of RM and QE.
 

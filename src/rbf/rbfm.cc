@@ -1523,8 +1523,13 @@ RC RBFM_ScanIterator::independentGetRequestedAttributes(RID &rid, RID &realRid, 
  * similar to destructor
  */
 RC RBFM_ScanIterator::close() {
-	if(_page_dummy!=NULL) free(_page_dummy);
-	_page_dummy = NULL;
+	_page_number = 0;
+	_page_block_pointer = 0;
+	_page_pointer = -1;
+	_slot_number = 0;
+	_slot_pointer = -1;
+	// if(_page_dummy!=NULL) free(_page_dummy);
+	// _page_dummy = NULL;
 	return 0;
 }
 
